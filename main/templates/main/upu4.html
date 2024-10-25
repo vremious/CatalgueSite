@@ -58,6 +58,13 @@
                             <option value='+'>Есть</option>
                             <option value='-'>Нет</option>
                         </select>
+                        <div class="mb-2 mt-2 ms-2"> Срочно реализовать? </div>
+                        <div class="form-check">
+                          <input class="form-check-input" type="checkbox" value="+" id="defaultCheck1" name="Expired">
+                          <label class="form-check-label" for="defaultCheck1">
+                            Да
+                          </label>
+                        </div>
                         <div class="p-lg-2">
                             <button type="submit" style='width: 100%; padding-left:0; padding-right:0;'
                                     class="btn btn-secondary">Применить
@@ -145,6 +152,12 @@
                                             р.</p>{% endif %}
                                         <p>{% if i.grouper.warranty %}
                                             <hr>Гарантия: <b>{{ i.grouper.warranty }}</b> мес.</p>{% endif %}
+                                        {% if i.grouper.id in expired %}
+                                            <p class="text-danger">Срочно реализовать S/N:</p>
+                                            {% for i in expired_sn %}
+                                                {{ i }}<br>
+                                            {% endfor %}
+                                        {% endif %}
                                     {% endif %}
                                 </div>
                                 <div class='flip-card-back'>

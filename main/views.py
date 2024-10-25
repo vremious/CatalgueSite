@@ -90,38 +90,56 @@ class CategoryPage(ListView):
     # Функция ниже нужна для получения выборки из БД взависимости от значений контекстных фильтров на странице
     # и последующего формирования отображения моделей. По сути заменяет параметр model выше.
     def get_queryset(self):
+        qs1 = Available.objects.select_related('model', 'service', 'model__company',
+                                               'model__add_filter_name', 'model__add_filter').filter(
+            model__type_fk__slug=self.kwargs['cat_slug'], service__filial__slug=self.kwargs['slug'],
+            model__actual='Да').order_by(
+            self.request.GET.get('sort', default='model__company__company'), 'model__model',
+            'service__service_centre')
+        expired_qs = ExpiredDevice.objects.select_related().filter(
+            filial__slug__exact=self.kwargs['slug'],
+            model__type_fk__slug=self.kwargs['cat_slug'])
+        try:
+            expired = [i.model.id for i in expired_qs if expired_qs]
+        except Exception:
+            expired = []
         if self.request.GET.get('Company') or self.request.GET.get('Model') or self.request.GET.get('Service') \
-                or self.request.GET.get('Available') or self.request.GET.get('Add_filter'):
+                or self.request.GET.get('Available') or self.request.GET.get('Add_filter') or \
+                self.request.GET.get('Expired'):
             if self.request.GET.get('Add_filter'):
-                qs1 = Available.objects.select_related('model', 'service', 'model__company',
-                                                       'model__add_filter', 'model__add_filter_name').filter(
-                    model__type_fk__slug=self.kwargs['cat_slug'], model__actual='Да',
+                return qs1.filter(
                     model__company__company__icontains=self.request.GET.get('Company'),
                     model__model__icontains=self.request.GET.get('Model'),
                     service__service_centre__icontains=self.request.GET.get('Service'),
                     available__icontains=self.request.GET.get('Available'),
                     model__add_filter__value__icontains=self.request.GET.get('Add_filter'),
-                    service__filial__slug=self.kwargs['slug']
-                ).order_by(self.request.GET.get('sort', default='model__company__company'), 'model__model',
-                           'service__service_centre', 'model__add_filter__value')
-            else:
-                qs1 = Available.objects.select_related('model', 'service', 'model__company',
-                                                       'model__add_filter_name', 'model__add_filter').filter(
-                    model__type_fk__slug=self.kwargs['cat_slug'], model__actual='Да',
+                )
+            elif self.request.GET.get('Expired'):
+                return qs1.filter(
                     model__company__company__icontains=self.request.GET.get('Company'),
                     model__model__icontains=self.request.GET.get('Model'),
                     service__service_centre__icontains=self.request.GET.get('Service'),
                     available__icontains=self.request.GET.get('Available'),
-                    service__filial__slug=self.kwargs['slug']
-                ).order_by(self.request.GET.get('sort', default='model__company__company'), 'model__model',
-                           'service__service_centre')
-        else:
-            qs1 = Available.objects.select_related('model', 'service', 'model__company',
-                                                   'model__add_filter_name', 'model__add_filter').filter(
-                model__type_fk__slug=self.kwargs['cat_slug'], service__filial__slug=self.kwargs['slug'],
-                model__actual='Да').order_by(
-                self.request.GET.get('sort', default='model__company__company'), 'model__model',
-                'service__service_centre')
+                    model_id__in=expired
+                )
+            elif self.request.GET.get('Expired') and self.request.GET.get('Add_filter'):
+                return qs1.filter(
+                    model__company__company__icontains=self.request.GET.get('Company'),
+                    model__model__icontains=self.request.GET.get('Model'),
+                    service__service_centre__icontains=self.request.GET.get('Service'),
+                    available__icontains=self.request.GET.get('Available'),
+                    model__add_filter__value__icontains=self.request.GET.get('Add_filter'),
+                    model_id__in=expired
+
+                )
+            else:
+                return qs1.filter(
+                    model__company__company__icontains=self.request.GET.get('Company'),
+                    model__model__icontains=self.request.GET.get('Model'),
+                    service__service_centre__icontains=self.request.GET.get('Service'),
+                    available__icontains=self.request.GET.get('Available'),
+
+                )
         if Type.objects.select_related().filter(purpose__purpose='Абонентское', slug=self.kwargs['cat_slug']):
             return qs1
         else:
@@ -163,6 +181,20 @@ class CategoryPage(ListView):
             filial__exact=context['city']).values_list('slug', flat=True)[0] + '/'
         context['city17'] = Filial.objects.select_related().filter(
             filial__exact=context['city']).values_list('slug', flat=True)[0]
+        expired_qs = ExpiredDevice.objects.select_related().filter(
+            filial__slug__exact=self.kwargs['slug'],
+            model__type_fk__slug=self.kwargs['cat_slug'])
+        expired_serials_qs = ExpiredDeviceSerial.objects.select_related().filter(
+            entry__filial__slug__exact=self.kwargs['slug'],
+            entry__model__type_fk__slug=self.kwargs['cat_slug'])
+        print(self.object_list.values_list('model', flat=True))
+        try:
+            context['expired'] = [i.model.id for i in expired_qs if expired_qs]
+            context['expired_sn'] = [i.serial_number for i in expired_serials_qs if i.entry.model.id in self.object_list.values_list('model', flat=True)]
+        except:
+            context['expired'] = []
+            context['expired_sn'] = []
+
         return context
 
 
@@ -191,11 +223,21 @@ class SearchResults(ListView):
         qs3 = qs | qs2
         company = self.request.GET.get('Company')
         type_filter = self.request.GET.get('Type')
+        expire = self.request.GET.get('Expired')
+        try:
+            expired = [i.model.id for i in
+                       ExpiredDevice.objects.select_related().filter(filial__slug__exact=self.kwargs['slug'])]
+        except:
+            expired = []
 
-        if company or type_filter:
-            return qs3.filter(Q(model__company__company__icontains=self.request.GET.get('Company')) &
-                              Q(model__type_fk__type__icontains=type_filter)).order_by(sort, 'model__model',
-                                                                                       'service__service_centre')
+        if company or type_filter or expire:
+            qs = qs3.filter(Q(model__company__company__icontains=self.request.GET.get('Company')) &
+                            Q(model__type_fk__type__icontains=type_filter)).order_by(sort, 'model__model',
+                                                                                     'service__service_centre')
+            if not expire:
+                return qs
+            else:
+                return qs.filter(model_id__in=expired)
         return qs3
 
     # функция ниже позволяет создать дополнительные объекты для использования их в HTML шаблоне
@@ -244,4 +286,17 @@ class SearchResults(ListView):
             model__contains=self.request.GET.get('Search'), available__service__filial__slug=self.kwargs['slug'],
             actual='Да', available__available='+').order_by(
             'type_fk__type') | context['customer_devices_filter']
+        expired_qs = ExpiredDevice.objects.select_related().filter(
+            filial__slug__exact=self.kwargs['slug'],
+            )
+        expired_serials_qs = ExpiredDeviceSerial.objects.select_related().filter(
+            entry__filial__slug__exact=self.kwargs['slug'],
+            )
+        print(self.object_list.values_list('model', flat=True))
+        try:
+            context['expired'] = [i.model.id for i in expired_qs if expired_qs]
+            context['expired_sn'] = [i.serial_number for i in expired_serials_qs if i.entry.model.id in self.object_list.values_list('model', flat=True)]
+        except:
+            context['expired'] = []
+            context['expired_sn'] = []
         return context

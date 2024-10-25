@@ -1,3 +1,4 @@
+import dateutil.relativedelta
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
@@ -65,7 +66,7 @@ class Type(models.Model):
 
 
 class Filial(models.Model):
-    filial = models.CharField(max_length=50, verbose_name="Филиал")
+    filial = models.CharField(max_length=50, verbose_name="Филиал", unique=True)
     slug = models.SlugField(max_length=255, verbose_name='Ссылка', null=True, blank=True, editable=False)
 
     def my_slugify(self):
@@ -92,6 +93,7 @@ class Service(models.Model):
     class Meta:
         verbose_name = 'Сервисный центр'
         verbose_name_plural = 'Сервисные центры'
+        unique_together = ['service_centre', 'filial']
 
     def __str__(self):
         return f'{self.service_centre}'
@@ -185,7 +187,7 @@ class Models(models.Model):
         unique_together = ('company', 'model')
 
     def __str__(self):
-        return self.model
+        return f'{self.company} {self.model}'
 
 
 class Available(models.Model):
@@ -258,9 +260,68 @@ class Employee(models.Model):
     class Meta:
         verbose_name = "Привязка админов к СЦ"
         verbose_name_plural = 'Привязки админов к СЦ'
+        unique_together = ['user', 'service']
 
     def __str__(self):
         return str(f'{self.user} - {self.service}')
+
+
+class AdminToFilial(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='Пользователь')
+    filial = models.ForeignKey(Filial, on_delete=models.CASCADE, verbose_name='Филиал')
+
+    class Meta:
+        verbose_name = 'Привязка маркетинга'
+        verbose_name_plural = 'Привязка маркетинга'
+
+
+class DeviceRequest(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, editable=False, verbose_name="Пользователь")
+    service = models.ForeignKey(Service, on_delete=models.CASCADE, editable=True, null=True, blank=True,
+                                verbose_name='Сервисный центр')
+    device = models.ForeignKey(Models, on_delete=models.CASCADE, verbose_name='Устройство')
+    contract_number = models.CharField(max_length=20, blank=True, verbose_name='Номер договора')
+    comment = models.TextField(blank=True, null=True, verbose_name='Комментарий')
+    answer = models.TextField(blank=True, null=True, verbose_name='Ответ на запрос')
+    date = models.DateTimeField(auto_created=True, editable=False, null=True, blank=True,
+                                verbose_name='Дата создания заявки')
+
+
+    class Meta:
+        verbose_name = 'Запрос устройства'
+        verbose_name_plural = 'Запрос устройтсв'
+
+
+class ExpiredDevice(models.Model):
+    filial = models.ForeignKey(Filial, on_delete=models.CASCADE, blank=False, null=False,
+                               verbose_name='Филиал')
+    model = models.ForeignKey(Models, on_delete=models.CASCADE, verbose_name='Модель устройства', blank=False,
+                              null=False)
+    date_created = models.DateTimeField(editable=False, auto_created=True, blank=False, verbose_name='Дата создания')
+    date_sell_until = models.DateField(editable=True, null=True, blank=True, verbose_name="Реализовать до")
+
+    class Meta:
+        verbose_name = 'Срочно продать'
+        verbose_name_plural = 'Срочно продать'
+        unique_together = ['filial', 'model']
+
+    def save(self, *args, **kwargs):
+        if self.date_sell_until is None:
+            self.date_sell_until = self.date_created + dateutil.relativedelta.relativedelta(months=2)
+        super(ExpiredDevice, self).save(*args, **kwargs)
+
+    def __str__(self):
+        return str(f'{self.model}')
+
+
+class ExpiredDeviceSerial(models.Model):
+    entry = models.ForeignKey(ExpiredDevice, on_delete=models.CASCADE, null=False, verbose_name='Устройство')
+    serial_number = models.CharField(max_length=50, blank=False, verbose_name='Серийный номер')
+
+    class Meta:
+        verbose_name = 'Срочно продать (SN))'
+        verbose_name_plural = 'Срочно продать (SN))'
+        unique_together = ['entry', 'serial_number']
 
 
 # Декоратор добавляющий и убирающий оборудование взависимотси от актуальности:

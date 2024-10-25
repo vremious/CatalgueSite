@@ -14,6 +14,8 @@ from django.contrib.admin.models import LogEntry
 Тут регистрируются разделы админки. Первично создаётся модель в разделе models, делается миграция,
 далее регитсрируем тут. Также здесь можно настраивать, что будет уметь та или иная модель в админке.
 """
+
+
 class LogEntryAdmin(admin.ModelAdmin):
     list_display = ('__str__', 'action_time', 'user', 'object_repr')
     list_filter = ('user__username',)
@@ -79,6 +81,48 @@ class ModelsAdmin(admin.ModelAdmin):
     list_per_page = 20
     list_editable = ['actual', 'price', 'split_period', 'warranty']
     autocomplete_fields = ['company', 'type_fk']
+    actions = ['mark_as_expired']
+
+    def mark_as_expired(self, request, queryset):
+        """
+        Позволяет выбрать несколько устройств и отмечать их для срочной продажи.
+        """
+        # Получаем текущего пользователя
+        current_user = request.user
+
+        # Получаем все филиалы, к которым прикреплен пользователь
+        user_filials = AdminToFilial.objects.filter(user=current_user).values_list('filial', flat=True)
+
+        # Проверяем, что есть филиалы
+        if not user_filials:
+            self.message_user(request, "У вас нет привязанных филиалов.", level='error')
+            return
+
+        # Для хранения новых записей
+        expired_devices = []
+
+        # Проверяем существующие записи в ExpiredDevice, чтобы не добавлять их снова
+        existing_records = ExpiredDevice.objects.filter(model__in=queryset, filial_id__in=user_filials).values_list(
+            'model_id', 'filial_id')
+
+        for model in queryset:
+            for filial_id in user_filials:
+                # Проверяем, существует ли запись
+                if (model.id, filial_id) not in existing_records:
+                    expired_devices.append(ExpiredDevice(filial_id=filial_id, model=model,
+                                                         date_created=datetime.datetime.now(),
+                                                         date_sell_until=datetime.date.today() +
+                                                                         dateutil.relativedelta.relativedelta(
+                                                                             months=2)))
+
+        # bulk_create для добавления всех записей за один запрос, если есть новые
+        if expired_devices:
+            ExpiredDevice.objects.bulk_create(expired_devices)
+            self.message_user(request, "Выбранные устройства успешно добавлены для срочной продажи.")
+        else:
+            self.message_user(request, "Все выбранные устройства уже отмечены для срочной продажи.", level='warning')
+
+    mark_as_expired.short_description = "Срочно продать"
 
     def get_form(self, request, obj=None, **kwargs):
         form = super(ModelsAdmin, self).get_form(request, obj, **kwargs)
@@ -128,20 +172,7 @@ class AvailableAdmin(ModelAdminTotals):
     def get_queryset(self, request):
         if Employee.objects.filter(user=request.user.id):
             var = Employee.objects.filter(user=request.user.id).values_list('service_id', flat=True)
-            if len(var) == 1:
-                return self.model.objects.filter(service=var[0])
-            elif len(var) == 2:
-                return self.model.objects.filter(service=var[0]) | self.model.objects.filter(service=var[1])
-            elif len(var) == 3:
-                return self.model.objects.filter(service=var[0]) | self.model.objects.filter(service=var[1]) | self. \
-                    model.objects.filter(service=var[2])
-            elif len(var) == 4:
-                return self.model.objects.filter(service=var[0]) | self.model.objects.filter(service=var[1]) | self. \
-                    model.objects.filter(service=var[2]) | self.model.objects.filter(service=var[3])
-            elif len(var) == 5:
-                return self.model.objects.filter(service=var[0]) | self.model.objects.filter(service=var[1]) | self. \
-                    model.objects.filter(service=var[2]) | self.model.objects.filter(service=var[3]) | self.model. \
-                    objects.filter(service=var[4])
+            return self.model.objects.filter(service__in=var)
         else:
             return self.model.objects.all()
 
@@ -169,20 +200,7 @@ class TesterTimeAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         if Employee.objects.filter(user=request.user.id):
             var = Employee.objects.filter(user=request.user.id).values_list('service_id', flat=True)
-            if len(var) == 1:
-                return self.model.objects.filter(service=var[0])
-            elif len(var) == 2:
-                return self.model.objects.filter(service=var[0]) | self.model.objects.filter(service=var[1])
-            elif len(var) == 3:
-                return self.model.objects.filter(service=var[0]) | self.model.objects.filter(service=var[1]) | self. \
-                    model.objects.filter(service=var[2])
-            elif len(var) == 4:
-                return self.model.objects.filter(service=var[0]) | self.model.objects.filter(service=var[1]) | self. \
-                    model.objects.filter(service=var[2]) | self.model.objects.filter(service=var[3])
-            elif len(var) == 5:
-                return self.model.objects.filter(service=var[0]) | self.model.objects.filter(service=var[1]) | self. \
-                    model.objects.filter(service=var[2]) | self.model.objects.filter(service=var[3]) | self.model. \
-                    objects.filter(service=var[4])
+            return self.model.objects.filter(service__in=var)
         else:
             return self.model.objects.all()
 
@@ -197,7 +215,82 @@ class TesterTimeAdmin(admin.ModelAdmin):
     list_editable = ['worktime', 'onduty']
 
 
+class ExpiredDeviceSerialInline(admin.StackedInline):
+    model = ExpiredDeviceSerial
+    extra = 1
+
+
+class AdminToFilialAdmin(admin.ModelAdmin):
+    list_display = ['user', 'filial']
+
+
 admin.site.register(TesterTime, TesterTimeAdmin)
+admin.site.register(AdminToFilial, AdminToFilialAdmin)
+
+
+class DeviceRequestAdmin(admin.ModelAdmin):
+    list_display = ['user', 'service',  'device', 'contract_number', 'comment', 'answer', 'date']
+    autocomplete_fields = ['device']
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+
+        # Фильтрация доступных сервисов для текущего пользователя
+        if request.user.is_authenticated:
+            # Получаем все сервисы, связанные с пользователем через Employee
+            employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
+            form.base_fields['service'].queryset = Service.objects.filter(id__in=employee_services)
+        return form
+
+    def save_model(self, request, obj, form, change, *args):
+        if not change:
+            obj.user = request.user
+            obj.date = datetime.datetime.now()
+        super().save_model(request, obj, form, change)
+
+    def get_readonly_fields(self, request, obj=None):
+        if request.user.groups.filter(name='Service Admins'):
+            return ['answer']
+        elif request.user.is_superuser is True:
+            return []
+        else:
+            return ['device', 'contract_number', 'comment']
+
+    def get_queryset(self, request):
+        if request.user.groups.filter(name='Service Admins'):
+            return self.model.objects.filter(user=request.user.id)
+        else:
+            return self.model.objects.all()
+
+
+admin.site.register(DeviceRequest, DeviceRequestAdmin)
+
+
+class ExpiredDevicesAdmin(admin.ModelAdmin):
+    list_display = ['company', 'model', 'filial', 'date_created', 'date_sell_until']
+    autocomplete_fields = ['model']
+    inlines = [ExpiredDeviceSerialInline]
+
+    def company(self, obj):
+        return obj.model.company
+
+    def model(self, obj):
+        return obj.model.model
+
+
+admin.site.register(ExpiredDevice, ExpiredDevicesAdmin)
+
+
+@admin.register(ExpiredDeviceSerial)
+class ExpiredDeviceSerialAdmin(admin.ModelAdmin):
+    list_display = ['entry', 'serial_number', 'date_sell_until']
+    search_fields = ['entry__model__company__company', 'entry__model__model', 'serial_number']
+
+    def date_sell_until(self, obj):
+        # Предполагается, что obj.entry ссылается на экземпляр модели ExpiredDevices
+        return obj.entry.date_sell_until if obj.entry else None
+
+
 
 
 def logged_in_message(sender, user, request, **kwargs):
