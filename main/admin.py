@@ -96,7 +96,7 @@ class ModelsAdmin(admin.ModelAdmin):
 
         # Проверяем, что есть филиалы
         if not user_filials:
-            self.message_user(request, "У вас нет привязанных филиалов.", level='error')
+            self.message_user(request, "У вас нет полномочий - обратитесь к администратору сайта.", level='error')
             return
 
         # Для хранения новых записей
@@ -181,7 +181,6 @@ class AvailableAdmin(ModelAdminTotals):
         form = super(AvailableAdmin, self).get_form(request, obj, **kwargs)
         latest_object = Available.objects.latest('date')
         form.base_fields['model'].initial = latest_object.model
-        # form.base_fields['company'].initial = latest_object.company
         form.base_fields['quantity'].initial = latest_object.quantity
         form.base_fields['available'].initial = latest_object.available
 
