@@ -127,8 +127,8 @@
                 {% paginate quantity available_model %}
                 {% for i in available_model %}
                     <div class="col-auto mb-3 d-flex">
-                        <div class="flip-card mb-1 d-flex d-inline-block text-break" style="width:15rem; min-height: 500px; word-wrap: break-word">
-                            <div class="flip-card-inner">
+                        <div class="flip-card mb-1 d-flex d-inline-block text-break" style="width:15rem; min-height: 600px; word-wrap: break-word">
+                            <div class="flip-card-inner" style="width:14rem">
                                 <div class="flip-card-front">
                                     {% if i.grouper.image %}
                                         <img src="{{ i.grouper.image.url }}" class="card-img-top"
@@ -153,9 +153,17 @@
                                         <p>{% if i.grouper.warranty %}
                                             <hr>Гарантия: <b>{{ i.grouper.warranty }}</b> мес.</p>{% endif %}
                                         {% if i.grouper.id in expired %}
-                                            <p class="text-danger">Срочно реализовать S/N:</p>
-                                            {% for i in expired_sn %}
-                                                {{ i }}<br>
+                                            <p class="text-danger">Срочно реализовать
+                                            {% regroup expired_serials_qs by entry as entry %}
+                                            {% for j in entry %}
+                                                {% if j.grouper.model.id == i.grouper.id %}
+                                                     до {{ j.grouper.date_sell_until }}</p>
+                                                    <div class="container overflow-scroll ms-0 help-tooltip" style="height: 4.5rem; width: 14rem">
+                                                    {% for serial_numbers in j.list %}
+                                                        {{ serial_numbers.serial_number }}<br>
+                                                    {% endfor %}
+                                                    </div>
+                                                {% endif %}
                                             {% endfor %}
                                         {% endif %}
                                     {% endif %}

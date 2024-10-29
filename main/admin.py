@@ -79,6 +79,7 @@ class ModelsAdmin(admin.ModelAdmin):
     list_filter = ['type_fk__type', 'company']
     search_fields = ['model', 'company__company']
     list_per_page = 20
+    list_max_show_all = 100000
     list_editable = ['actual', 'price', 'split_period', 'warranty']
     autocomplete_fields = ['company', 'type_fk']
     actions = ['mark_as_expired']
@@ -151,7 +152,7 @@ def update(self, request, queryset):
 @admin.register(Available)
 class AvailableAdmin(ModelAdminTotals):
     list_per_page = 20
-    list_max_show_all = 5000
+    list_max_show_all = 100000
     save_as = True
 
     @admin.display(ordering='model__type_fk__type', description='Тип')
@@ -215,11 +216,6 @@ class TesterTimeAdmin(admin.ModelAdmin):
     list_editable = ['worktime', 'onduty']
 
 
-class ExpiredDeviceSerialInline(admin.StackedInline):
-    model = ExpiredDeviceSerial
-    extra = 1
-
-
 class AdminToFilialAdmin(admin.ModelAdmin):
     list_display = ['user', 'filial']
 
@@ -229,17 +225,26 @@ admin.site.register(AdminToFilial, AdminToFilialAdmin)
 
 
 class DeviceRequestAdmin(admin.ModelAdmin):
-    list_display = ['user', 'service',  'device', 'contract_number', 'comment', 'answer', 'date']
+    list_display = ['user', 'service', 'device', 'contract_number', 'comment', 'answer', 'decision', 'date']
     autocomplete_fields = ['device']
 
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
-
         # Фильтрация доступных сервисов для текущего пользователя
-        if request.user.is_authenticated:
+        if request.user.is_authenticated and request.user.groups.filter(name='Service Admins').exists():
+            if obj is None:
             # Получаем все сервисы, связанные с пользователем через Employee
-            employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
-            form.base_fields['service'].queryset = Service.objects.filter(id__in=employee_services)
+                try:
+                    employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
+                    form.base_fields['service'].queryset = Service.objects.filter(id__in=employee_services)
+                except:
+                    pass
+            else:
+                if 'contract_number' in form.base_fields:
+                    form.base_fields.pop('contract_number')
+            return form
+        elif request.user.is_superuser is True:
+            form.base_fields['service'].queryset = Service.objects.select_related()
         return form
 
     def save_model(self, request, obj, form, change, *args):
@@ -250,24 +255,45 @@ class DeviceRequestAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         if request.user.groups.filter(name='Service Admins'):
-            return ['answer']
+            return ['answer', 'decision']
         elif request.user.is_superuser is True:
             return []
         else:
-            return ['device', 'contract_number', 'comment']
+            return ['service', 'device', 'contract_number', 'comment']
 
     def get_queryset(self, request):
+        marketing = AdminToFilial.objects.filter(user=request.user).values_list('filial', flat=True)
+        # print(marketing)
         if request.user.groups.filter(name='Service Admins'):
             return self.model.objects.filter(user=request.user.id)
-        else:
+        elif request.user.is_superuser is True:
             return self.model.objects.all()
+        elif request.user.groups.filter(name='marketing'):
+            return self.model.objects.filter(service__filial__in=marketing)
+
+    def get_list_display(self, request):
+        if request.user.groups.filter(name='Service Admins'):
+            return ['user', 'service', 'device', 'comment', 'answer', 'decision', 'date']
+        elif request.user.groups.filter(name='marketing') or request.user.is_superuser is True:
+            return ['user', 'service', 'device', 'contract_number', 'comment', 'answer', 'decision', 'date']
+
+    # def get_exclude(self, request, obj=None):
+    #     if request.user.groups.filter(name='Service Admins'):
+    #         return ['contract_number']
+
 
 
 admin.site.register(DeviceRequest, DeviceRequestAdmin)
 
 
+class ExpiredDeviceSerialInline(admin.StackedInline):
+    model = ExpiredDeviceSerial
+    extra = 1
+
+
 class ExpiredDevicesAdmin(admin.ModelAdmin):
     list_display = ['company', 'model', 'filial', 'date_created', 'date_sell_until']
+    search_fields = ['model__model', 'model__company__company']
     autocomplete_fields = ['model']
     inlines = [ExpiredDeviceSerialInline]
 
@@ -277,20 +303,69 @@ class ExpiredDevicesAdmin(admin.ModelAdmin):
     def model(self, obj):
         return obj.model.model
 
+    def get_queryset(self, request):
+        if request.user.groups.filter(name='marketing'):
+            marketing = AdminToFilial.objects.filter(user=request.user).values_list('filial', flat=True)
+            return self.model.objects.filter(filial_id__in=marketing)
+        elif request.user.is_superuser is True:
+            return self.model.objects.all()
+
 
 admin.site.register(ExpiredDevice, ExpiredDevicesAdmin)
 
 
 @admin.register(ExpiredDeviceSerial)
 class ExpiredDeviceSerialAdmin(admin.ModelAdmin):
-    list_display = ['entry', 'serial_number', 'date_sell_until']
+    list_display = ['entry', 'filial', 'serial_number', 'date_sell_until', 'sold', 'by_who']
+    list_editable = ['sold', 'by_who']
     search_fields = ['entry__model__company__company', 'entry__model__model', 'serial_number']
 
+    @admin.display(description='Продать до')
     def date_sell_until(self, obj):
         # Предполагается, что obj.entry ссылается на экземпляр модели ExpiredDevices
         return obj.entry.date_sell_until if obj.entry else None
 
+    @admin.display(description='Филиал')
+    def filial(self, obj):
+        return obj.entry.filial
 
+    def get_readonly_fields(self, request, obj=None):
+        if request.user.groups.filter(name='Service Admins'):
+            return ['entry', 'serial_number', 'date_sell_until']
+        elif request.user.groups.filter(name='marketing'):
+            return ['sold', 'by_who']
+        else:
+            return []
+
+    def get_queryset(self, request):
+        marketing = AdminToFilial.objects.filter(user=request.user).values_list('filial', flat=True)
+        service = Employee.objects.select_related().filter(user=request.user).values_list('service', flat=True)
+        filial = Filial.objects.select_related().filter(service__in=service).values_list('id', flat=True)
+        if request.user.groups.filter(name='Service Admins'):
+            return self.model.objects.filter(entry__filial_id__in=filial)
+        elif request.user.is_superuser is True:
+            return self.model.objects.all()
+        else:
+            return self.model.objects.filter(entry__filial_id__in=marketing)
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        # Фильтрация доступных сервисов для текущего пользователя
+        if request.user.is_authenticated and request.user.groups.filter(name='Service Admins'):
+            # Получаем все сервисы, связанные с пользователем через Employee
+            employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
+            form.base_fields['by_who'].queryset = Service.objects.filter(id__in=employee_services)
+        elif request.user.is_superuser is True:
+            form.base_fields['by_who'].queryset = Service.objects.select_related()
+        return form
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "by_who":
+            # Ограничиваем доступные сервисы только теми, которые связаны с текущим пользователем
+            if request.user.is_authenticated:
+                employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
+                kwargs["queryset"] = Service.objects.filter(id__in=employee_services)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 def logged_in_message(sender, user, request, **kwargs):
@@ -299,10 +374,18 @@ def logged_in_message(sender, user, request, **kwargs):
     """
     messages.info(request, "Добро пожаловать!")
 
-    # messages.info(request, 'При необходимости обновления времени ВСЕГО оборудования на участке спуститесь вниз страницы "Наличие оборудования"')
-    # messages.info(request, 'Нажмите на "Показать все" рядом с перечнем страниц')
-    # messages.info(request, 'Выберите всё оборудование нажатием на самый верхний чекбокс вверху таблицы (Возле шапки "Сервисный центр")')
-    # messages.info(request, 'Над шапкой таблицы возле "Сервисный центр" в поле "Действие" выбрать "Обновить дату и время внесения", после чего нажать на кнопку "Выполнить"')
+    messages.info(request, 'Нововведения на сайте:')
+    messages.info(request, 'Появилась возможность запрашивать оборудование у маркетологов в разделе "Запрос устройств".'
+                           ' Для запроса нужно выбрать интересующую модель оборудование, указать договор, на который'
+                           ' будет выдаваться устройство, по желанию - оставить комментарий. Специалист маркетинга'
+                           'может оставить ответ на вашу заявку и определить её статус (заявка принята или отклонена).')
+    messages.info(request, 'Появился раздел "Срочно продать (SN)" - в нём содержатся серийные номера устройств, которые'
+                           ' первостепенны к продаже. Назначает их отдел маркетинга.')
+    messages.info(request, 'Специалистам СЦ большая просьба - для избежания путаницы, если у Вас была реализована'
+                           ' единица товара с серийным '
+                           'номером из списка - проставьте чекбокс "продан" и Ваш СЦ в "Срочно продать (SN)", после чего'
+                           ' нажмите кнопку сохранить. Эти действия уберут серийный номер с карточки товара на сайте.'
+                           ' Заранее спасибо!')
     # messages.info(request, 'Это действие автоматически проставит текущее время на всех выбраных элементах.')
 
 

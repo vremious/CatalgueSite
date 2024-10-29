@@ -184,13 +184,15 @@ class CategoryPage(ListView):
         expired_qs = ExpiredDevice.objects.select_related().filter(
             filial__slug__exact=self.kwargs['slug'],
             model__type_fk__slug=self.kwargs['cat_slug'])
-        expired_serials_qs = ExpiredDeviceSerial.objects.select_related().filter(
+        context['expired_serials_qs'] = ExpiredDeviceSerial.objects.select_related().filter(
             entry__filial__slug__exact=self.kwargs['slug'],
-            entry__model__type_fk__slug=self.kwargs['cat_slug'])
-        print(self.object_list.values_list('model', flat=True))
+            entry__model__type_fk__slug=self.kwargs['cat_slug'],
+            entry__model_id__in=self.object_list.values_list('model_id', flat=True),
+            sold=False,
+            )
         try:
             context['expired'] = [i.model.id for i in expired_qs if expired_qs]
-            context['expired_sn'] = [i.serial_number for i in expired_serials_qs if i.entry.model.id in self.object_list.values_list('model', flat=True)]
+            context['expired_sn'] = [i.serial_number for i in  context['expired_serials_qs'] if i.entry.model.id in self.object_list.values_list('model', flat=True)]
         except:
             context['expired'] = []
             context['expired_sn'] = []
@@ -243,6 +245,7 @@ class SearchResults(ListView):
     # функция ниже позволяет создать дополнительные объекты для использования их в HTML шаблоне
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context['title'] = 'Результаты поиска'
         context["available"] = Available.objects.select_related(
             'model', 'service').filter(service__filial__slug=self.kwargs['slug'], model__actual="Да").order_by(
             'service__id')
@@ -289,13 +292,15 @@ class SearchResults(ListView):
         expired_qs = ExpiredDevice.objects.select_related().filter(
             filial__slug__exact=self.kwargs['slug'],
             )
-        expired_serials_qs = ExpiredDeviceSerial.objects.select_related().filter(
+        context['expired_serials_qs'] = ExpiredDeviceSerial.objects.select_related().filter(
             entry__filial__slug__exact=self.kwargs['slug'],
+            entry__model_id__in=self.object_list.values_list('model_id', flat=True),
+            sold=False,
             )
-        print(self.object_list.values_list('model', flat=True))
         try:
             context['expired'] = [i.model.id for i in expired_qs if expired_qs]
-            context['expired_sn'] = [i.serial_number for i in expired_serials_qs if i.entry.model.id in self.object_list.values_list('model', flat=True)]
+            context['expired_sn'] = [i.serial_number for i in context['expired_serials_qs'] if i.entry.model.id in
+                                     self.object_list.values_list('model', flat=True)]
         except:
             context['expired'] = []
             context['expired_sn'] = []

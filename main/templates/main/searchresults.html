@@ -133,9 +133,9 @@
                 {% paginate quantity available_model  %}
                 {% for i in available_model %}
                     <div class="col-auto mb-3 d-flex">
-                        <div class="flip-card mb-1 d-flex" style="width:15rem; min-height: 500px">
-                            <div class="flip-card-inner">
-                                <div class="flip-card-front">
+                        <div class="flip-card mb-1 d-flex" style="width:15rem; min-height: 600px">
+                            <div class="flip-card-inner" style="width:14rem">
+                                <div class="flip-card-front" >
                                     {% if i.grouper.image %}
                                         <img src="{{ i.grouper.image.url }}" class="card-img-top"
                                              style="width:14rem; height:100%">
@@ -156,12 +156,21 @@
                                         <p>{% if i.grouper.full_price %}
                                             <hr>Стоимость при единовременном платеже: <b>{{ i.grouper.full_price }}</b>
                                             р.</p>{% endif %}
+                                        <hr>
                                         <p>{% if i.grouper.warranty %}
-                                            <hr>Гарантия: <b>{{ i.grouper.warranty }}</b> мес.</p>{% endif %}
+                                            Гарантия: <b>{{ i.grouper.warranty }}</b> мес.</p>{% endif %}
                                         {% if i.grouper.id in expired %}
-                                            <p class="text-danger">Срочно реализовать S/N:</p>
-                                            {% for i in expired_sn %}
-                                                {{ i }}<br>
+                                            <p class="text-danger">Срочно реализовать
+                                            {% regroup expired_serials_qs by entry as entry %}
+                                            {% for j in entry %}
+                                                {% if j.grouper.model.id == i.grouper.id %}
+                                                     до {{ j.grouper.date_sell_until }}</p>
+                                                    <div class="container overflow-scroll ms-0 help-tooltip" style="height: 4.5rem; width: 14rem">
+                                                    {% for serial_numbers in j.list %}
+                                                        {{ serial_numbers.serial_number }}<br>
+                                                    {% endfor %}
+                                                    </div>
+                                                {% endif %}
                                             {% endfor %}
                                         {% endif %}
                                     {% endif %}

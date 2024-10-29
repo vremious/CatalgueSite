@@ -1,3 +1,5 @@
+import datetime
+
 import dateutil.relativedelta
 from django.db import models
 from django.core.exceptions import ValidationError
@@ -267,8 +269,8 @@ class Employee(models.Model):
 
 
 class AdminToFilial(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='Пользователь')
-    filial = models.ForeignKey(Filial, on_delete=models.CASCADE, verbose_name='Филиал')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, verbose_name='Пользователь')
+    filial = models.ForeignKey(Filial, on_delete=models.CASCADE, null=True, blank=True, verbose_name='Филиал')
 
     class Meta:
         verbose_name = 'Привязка маркетинга'
@@ -283,22 +285,25 @@ class DeviceRequest(models.Model):
     contract_number = models.CharField(max_length=20, blank=True, verbose_name='Номер договора')
     comment = models.TextField(blank=True, null=True, verbose_name='Комментарий')
     answer = models.TextField(blank=True, null=True, verbose_name='Ответ на запрос')
+    decision = models.CharField(verbose_name='Результат запроса', choices=(
+        ('Принято', 'Принято'),
+        ('Отклонено', 'Отклонено')), blank=True, null=True)
     date = models.DateTimeField(auto_created=True, editable=False, null=True, blank=True,
                                 verbose_name='Дата создания заявки')
-
 
     class Meta:
         verbose_name = 'Запрос устройства'
         verbose_name_plural = 'Запрос устройтсв'
-
-
+# #
+# #
 class ExpiredDevice(models.Model):
     filial = models.ForeignKey(Filial, on_delete=models.CASCADE, blank=False, null=False,
                                verbose_name='Филиал')
     model = models.ForeignKey(Models, on_delete=models.CASCADE, verbose_name='Модель устройства', blank=False,
                               null=False)
     date_created = models.DateTimeField(editable=False, auto_created=True, blank=False, verbose_name='Дата создания')
-    date_sell_until = models.DateField(editable=True, null=True, blank=True, verbose_name="Реализовать до")
+    date_sell_until = models.DateField(editable=True, null=True, blank=True, verbose_name="Реализовать до",
+                                       default=datetime.date.today() + dateutil.relativedelta.relativedelta(months=2))
 
     class Meta:
         verbose_name = 'Срочно продать'
@@ -306,6 +311,7 @@ class ExpiredDevice(models.Model):
         unique_together = ['filial', 'model']
 
     def save(self, *args, **kwargs):
+        self.date_created = datetime.datetime.now()
         if self.date_sell_until is None:
             self.date_sell_until = self.date_created + dateutil.relativedelta.relativedelta(months=2)
         super(ExpiredDevice, self).save(*args, **kwargs)
@@ -317,12 +323,19 @@ class ExpiredDevice(models.Model):
 class ExpiredDeviceSerial(models.Model):
     entry = models.ForeignKey(ExpiredDevice, on_delete=models.CASCADE, null=False, verbose_name='Устройство')
     serial_number = models.CharField(max_length=50, blank=False, verbose_name='Серийный номер')
+    sold = models.BooleanField(verbose_name='Продан', default=False)
+    by_who = models.ForeignKey(Service, on_delete=models.CASCADE, null=True, blank=True, verbose_name='Где продан')
 
     class Meta:
         verbose_name = 'Срочно продать (SN))'
         verbose_name_plural = 'Срочно продать (SN))'
         unique_together = ['entry', 'serial_number']
 
+    def clean(self):
+        super().clean()
+        # Проверка валидации только если sold установлено в True
+        if self.sold and not self.by_who:
+            raise ValidationError('Если устройство продано, укажите где продано.')
 
 # Декоратор добавляющий и убирающий оборудование взависимотси от актуальности:
 @receiver(post_save, sender=Available)
