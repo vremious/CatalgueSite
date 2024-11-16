@@ -1,6 +1,7 @@
 import datetime
 
 import dateutil.relativedelta
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
@@ -8,6 +9,9 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from transliterate import translit
 from django.contrib.auth.models import User
+from PIL import Image as PILImage
+
+from main.validators import validate_file_size, validate_image_extension, validate_file_extension
 
 """
 Тут прописываются модели ORM. Объявляя модель создаётся новая таблица в БД.
@@ -294,6 +298,8 @@ class DeviceRequest(models.Model):
     class Meta:
         verbose_name = 'Запрос устройства'
         verbose_name_plural = 'Запрос устройтсв'
+
+
 # #
 # #
 class ExpiredDevice(models.Model):
@@ -336,6 +342,87 @@ class ExpiredDeviceSerial(models.Model):
         # Проверка валидации только если sold установлено в True
         if self.sold and not self.by_who:
             raise ValidationError('Если устройство продано, укажите где продано.')
+
+
+class Refund(models.Model):
+    date_created = models.DateTimeField(editable=False, auto_created=True, blank=False,
+                                        verbose_name='Дата создания заявки')
+    filial = models.ForeignKey(Filial, on_delete=models.DO_NOTHING, blank=True, null=True, verbose_name='Филиал')
+    date_send_to_BT = models.DateField(blank=True, null=True, verbose_name='Дата отправки заявки в БТК')
+    device = models.ForeignKey(Models, on_delete=models.DO_NOTHING, null=True, verbose_name='Устройство')
+    serial_number = models.CharField(max_length=50, null=False, verbose_name='Серийный номер устройства')
+    problem_description = models.TextField(verbose_name='Описание проблемы', blank=True)
+    pre_barter = models.CharField(choices=(('Да', 'Да'), ('Нет', 'Нет')), max_length=3, blank=True,
+                                  verbose_name="Предторг")
+    description = models.TextField(verbose_name='Примечание', blank=True)
+    date_approved_return = models.DateField(blank=True, null=True, verbose_name='Согласован возврат')
+
+    def save(self, *args, **kwargs):
+        self.date_created = datetime.datetime.now()
+        super(Refund, self).save(*args, **kwargs)
+
+    class Meta:
+        verbose_name = 'Возврат товара'
+        verbose_name_plural = 'Возвраты товаров'
+        unique_together = ['device', 'serial_number']
+
+    def __str__(self):
+        return str(f'{self.device}')
+
+
+class RefundImage(models.Model):
+    refund = models.ForeignKey(Refund, on_delete=models.CASCADE, verbose_name='Заявка на возврат', blank=False)
+
+    def file_upload(self, filename):
+        return f'main/media/refund_contracts/{self.refund.serial_number}/{filename}'
+
+    image = models.ImageField(upload_to=file_upload, validators=[validate_file_size, validate_image_extension],
+                              verbose_name='Фотографии')
+
+    class Meta:
+        verbose_name = 'Фото дефекта'
+        verbose_name_plural = 'Фото дефектов'
+
+
+class RefundDocs(models.Model):
+    refund = models.ForeignKey(Refund, on_delete=models.CASCADE, verbose_name='Заявка на возврат', blank=False)
+
+    def file_upload(self, filename):
+        return f'main/media/refund_contracts/{self.refund.serial_number}/{filename}'
+
+    docs = models.FileField(upload_to=file_upload, validators=[validate_file_size, validate_file_extension],
+                             verbose_name='Документы')
+
+    class Meta:
+        verbose_name = 'Документ'
+        verbose_name_plural = 'Документы'
+
+# Модуль сжимающий фото до 1920 пикселей по горизонтали с сохранением пропорций
+@receiver(post_save, sender=RefundImage)
+def compress_image(sender, instance, **kwargs):
+    if instance.image:
+        img_path = instance.image.path
+        img = PILImage.open(img_path)
+
+        # Устанавливаем максимальную ширину
+        max_width = 1920
+
+        # Получаем ширину и высоту изображения
+        width, height = img.size
+
+        # Проверяем, нужно ли изменять размер изображения
+        if width > max_width:
+            # Вычисляем коэффициент уменьшения
+            ratio = max_width / width
+            new_width = max_width
+            new_height = int(height * ratio)
+
+            # Изменяем размер изображения
+            img = img.resize((new_width, new_height))
+
+            # Сохраняем изображение
+            img.save(img_path, format='JPEG', quality=85)
+
 
 # Декоратор добавляющий и убирающий оборудование взависимотси от актуальности:
 @receiver(post_save, sender=Available)

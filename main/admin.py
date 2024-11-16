@@ -232,7 +232,7 @@ class DeviceRequestAdmin(admin.ModelAdmin):
         # Фильтрация доступных сервисов для текущего пользователя
         if request.user.is_authenticated and request.user.groups.filter(name='Service Admins').exists():
             if obj is None:
-            # Получаем все сервисы, связанные с пользователем через Employee
+                # Получаем все сервисы, связанные с пользователем через Employee
                 try:
                     employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
                     form.base_fields['service'].queryset = Service.objects.filter(id__in=employee_services)
@@ -279,7 +279,6 @@ class DeviceRequestAdmin(admin.ModelAdmin):
     # def get_exclude(self, request, obj=None):
     #     if request.user.groups.filter(name='Service Admins'):
     #         return ['contract_number']
-
 
 
 admin.site.register(DeviceRequest, DeviceRequestAdmin)
@@ -365,6 +364,60 @@ class ExpiredDeviceSerialAdmin(admin.ModelAdmin):
                 employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
                 kwargs["queryset"] = Service.objects.filter(id__in=employee_services)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+class RefundImageInline(admin.TabularInline):
+    model = RefundImage
+    extra = 1  # Количество пустых форм для добавления новых документов
+
+    # class Media:
+    #     js = ('js/image_validator.js',)
+
+
+class RefundDocsInline(admin.TabularInline):
+    model = RefundDocs
+    extra = 1  # Количество пустых форм для добавления новых документов
+
+    # class Media:
+    #     js = ('js/docs_validator.js',)
+
+
+class RefundAdmin(admin.ModelAdmin):
+    inlines = [RefundImageInline, RefundDocsInline]  # Используем inline для добавления документов
+    list_display = ('date_created', 'device', 'serial_number', 'pre_barter', 'problem_description')
+    autocomplete_fields = ['device']
+    readonly_fields = ('date_created',)
+
+    class Media:
+        js = ('js/docs_validator.js',)
+    # Подключаем внешний JS файл
+
+    def get_readonly_fields(self, request, obj=None):
+        if request.user.groups.filter(name='marketing'):
+            return ['pre_barter', 'device', 'serial_number', 'problem_description', 'filial']
+        elif request.user.is_superuser:
+            return []
+        else:
+            return ['date_send_to_BT', 'description', 'date_approved_return']
+
+    def get_queryset(self, request):
+        filial = AdminToFilial.objects.filter(user=request.user).values_list('filial', flat=True)
+        if request.user.is_superuser is True:
+            return self.model.objects.all()
+        else:
+            return self.model.objects.filter(filial_id__in=filial)
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if request.user.is_authenticated and not request.user.is_superuser:
+            employee_services = AdminToFilial.objects.filter(user=request.user).values_list('filial', flat=True)[0]
+            form.base_fields['filial'].queryset = Filial.objects.filter(id=employee_services)
+        elif request.user.is_superuser is True:
+            form.base_fields['filial'].queryset = Filial.objects.select_related()
+        return form
+
+
+admin.site.register(Refund, RefundAdmin)
 
 
 def logged_in_message(sender, user, request, **kwargs):
