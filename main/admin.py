@@ -2,12 +2,16 @@ import datetime
 from admin_totals.admin import ModelAdminTotals
 from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.db.models import Sum
 from django.contrib import messages
 from django.contrib.auth.signals import user_logged_in
+from django.utils.safestring import mark_safe
+
+import main.models
 from .models import *
 from django.contrib.auth.admin import UserAdmin
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, Group
 from django.contrib.admin.models import LogEntry
 
 """
@@ -16,14 +20,44 @@ from django.contrib.admin.models import LogEntry
 """
 
 
-class LogEntryAdmin(admin.ModelAdmin):
-    list_display = ('__str__', 'action_time', 'user', 'object_repr')
-    list_filter = ('user__username',)
-    search_fields = ['object_repr']
-    date_hierarchy = 'action_time'
+class CustomLogEntryAdmin(admin.ModelAdmin):
+    list_display = ('action_time', 'user', 'content_type', 'action_flag', '__str__')
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+
+        if request.user.is_superuser:
+            return qs  # Суперпользователь видит все записи
+
+        # Получаем все сервисы, к которым относится пользователь
+        try:
+            employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
+            print(employee_services)
+        except Employee.DoesNotExist:
+            return qs.none()  # Если у пользователя нет записи в Employee, ничего не показываем
+
+        # Получаем пользователей, относящихся к этим сервисам
+        related_users = User.objects.filter(employee__service__in=employee_services)
+        print(related_users)
+
+        # Получаем все заявки Refund, созданные пользователями из этих сервисов
+        related_refunds = Refund.objects.filter(user__in=related_users)
+        print(related_refunds)
+
+        # Получаем IDs связанных Refund
+        related_refund_ids = related_refunds.values_list('id', flat=True)
+        print(related_refund_ids)
+        related_refund_ids_str = list(map(str, related_refund_ids))  # Приводим к строкам
+        refund_content_type = ContentType.objects.get_for_model(Refund)
+        # Фильтруем логи по объектам Refund, созданным пользователями из этих сервисов и действиям над ними
+        return qs.filter(object_id__in=related_refund_ids_str,
+            content_type=refund_content_type)
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
 
 
-admin.site.register(LogEntry, LogEntryAdmin)
+
+admin.site.register(LogEntry, CustomLogEntryAdmin)
 
 
 class FilialAdmin(admin.ModelAdmin):
@@ -315,8 +349,11 @@ admin.site.register(ExpiredDevice, ExpiredDevicesAdmin)
 @admin.register(ExpiredDeviceSerial)
 class ExpiredDeviceSerialAdmin(admin.ModelAdmin):
     list_display = ['entry', 'filial', 'serial_number', 'date_sell_until', 'sold', 'by_who']
-    list_editable = ['sold', 'by_who']
     search_fields = ['entry__model__company__company', 'entry__model__model', 'serial_number']
+
+    def get_list_editable(self, request):
+        if request.user.groups.filter(name='Service Admins'):
+            self.list_editable.append('sold', 'by_who')
 
     @admin.display(description='Продать до')
     def date_sell_until(self, obj):
@@ -333,7 +370,7 @@ class ExpiredDeviceSerialAdmin(admin.ModelAdmin):
         elif request.user.groups.filter(name='marketing'):
             return ['sold', 'by_who']
         else:
-            return []
+            return ['by_who']
 
     def get_queryset(self, request):
         marketing = AdminToFilial.objects.filter(user=request.user).values_list('filial', flat=True)
@@ -354,7 +391,7 @@ class ExpiredDeviceSerialAdmin(admin.ModelAdmin):
             employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
             form.base_fields['by_who'].queryset = Service.objects.filter(id__in=employee_services)
         elif request.user.is_superuser is True:
-            form.base_fields['by_who'].queryset = Service.objects.select_related()
+            pass
         return form
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
@@ -363,58 +400,105 @@ class ExpiredDeviceSerialAdmin(admin.ModelAdmin):
             if request.user.is_authenticated:
                 employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
                 kwargs["queryset"] = Service.objects.filter(id__in=employee_services)
+            elif request.user.is_superuser or request.user.groups.filter(name='marketing'):
+                kwargs["queryset"] = Service.objects.all()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 class RefundImageInline(admin.TabularInline):
     model = RefundImage
     extra = 1  # Количество пустых форм для добавления новых документов
+    fields = ['image_tag', 'image']
+    readonly_fields = ['image_tag']
 
-    # class Media:
-    #     js = ('js/image_validator.js',)
+    def image_tag(self, obj):
+        if obj.image:
+            return mark_safe(f'<img src="{obj.image.url}" style="width: 100px; height: auto;" />')
+        return ""
 
 
 class RefundDocsInline(admin.TabularInline):
     model = RefundDocs
     extra = 1  # Количество пустых форм для добавления новых документов
 
-    # class Media:
-    #     js = ('js/docs_validator.js',)
-
 
 class RefundAdmin(admin.ModelAdmin):
     inlines = [RefundImageInline, RefundDocsInline]  # Используем inline для добавления документов
-    list_display = ('date_created', 'device', 'serial_number', 'pre_barter', 'problem_description')
+    list_display = ('date_created', 'user', 'device', 'serial_number', 'problem_description', 'pre_barter',
+                    'description', 'date_approved_return')
     autocomplete_fields = ['device']
     readonly_fields = ('date_created',)
+    actions = ['delete_selected_devices']
 
     class Media:
         js = ('js/docs_validator.js',)
-    # Подключаем внешний JS файл
+
+    def get_actions(self, request, *args, **kwargs):
+        actions = super().get_actions(request)
+        avalible_actions = {}
+        if request.user.is_superuser:
+            return actions
+        else:
+            return avalible_actions
+
+    def delete_selected_devices(self, request, queryset):
+        for refund in queryset:
+            # Удаляем все связанные фотографии и их файлы перед удалением устройства
+            for photo in refund.refundimage_set.all():
+                if photo.image and os.path.isfile(photo.image.path):
+                    os.remove(photo.image.path)
+                photo.delete()
+        for refund in queryset:
+            # Удаляем все связанные документы и их файлы перед удалением устройства
+            for docs in refund.refunddocs_set.all():
+                if docs.docs and os.path.isfile(docs.docs.path):
+                    os.remove(docs.docs.path)
+                docs.delete()
+                # Удаляем экземпляр документы после удаления файла
+            refund.delete()  # Удаляем экземпляр устройства
+
+        self.message_user(request, "Выбранные устройства и их изображения успешно удалены.")
+
+    delete_selected_devices.short_description = "Удалить выбраные устройства и связанные изображения"
+
+    def save_model(self, request, obj, form, change, *args):
+        if not change:
+            obj.user = request.user
+            obj.date_created = datetime.datetime.now()
+        super().save_model(request, obj, form, change)
 
     def get_readonly_fields(self, request, obj=None):
         if request.user.groups.filter(name='marketing'):
-            return ['pre_barter', 'device', 'serial_number', 'problem_description', 'filial']
+            return ['user', 'pre_barter', 'device', 'serial_number', 'problem_description', 'filial']
         elif request.user.is_superuser:
             return []
         else:
-            return ['date_send_to_BT', 'description', 'date_approved_return']
+            return ['user', 'date_send_to_BT', 'description', 'date_approved_return']
 
     def get_queryset(self, request):
+        qs = super(RefundAdmin, self).get_queryset(request)
         filial = AdminToFilial.objects.filter(user=request.user).values_list('filial', flat=True)
-        if request.user.is_superuser is True:
-            return self.model.objects.all()
-        else:
-            return self.model.objects.filter(filial_id__in=filial)
 
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        if request.user.is_authenticated and not request.user.is_superuser:
-            employee_services = AdminToFilial.objects.filter(user=request.user).values_list('filial', flat=True)[0]
-            form.base_fields['filial'].queryset = Filial.objects.filter(id=employee_services)
-        elif request.user.is_superuser is True:
-            form.base_fields['filial'].queryset = Filial.objects.select_related()
-        return form
+        if request.user.is_superuser is True:
+            return qs
+        elif request.user.groups.filter(name='marketing'):
+            return qs.filter(filial__in=filial)
+        # elif request.user.groups.filter(name='overseer'):
+        #     return qs.filter(user__in=)
+        else:
+            return qs.filter(user=request.user)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "filial":
+            # Ограничиваем доступные сервисы только теми, которые связаны с текущим пользователем
+            if request.user.is_authenticated and not request.user.is_superuser:
+                services = Employee.objects.filter(user=request.user).values_list('service_id', flat=True)
+                filials = Service.objects.filter(id__in=services).values_list('filial_id', flat=True)
+                filial = AdminToFilial.objects.filter(user=request.user).values_list('filial_id', flat=True)
+                kwargs["queryset"] = Filial.objects.filter(id__in=filial or filials)
+            elif request.user.is_superuser:
+                kwargs["queryset"] = Filial.objects.all()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 admin.site.register(Refund, RefundAdmin)

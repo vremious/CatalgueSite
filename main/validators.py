@@ -8,12 +8,12 @@ def validate_file_size(value):
 
 
 def validate_image_extension(value):
-    valid_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.JPG', 'JPEG']
+    valid_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.JPG', 'JPEG', 'PNG', 'GIF']
     if not any(value.name.endswith(ext) for ext in valid_extensions):
         raise ValidationError('Неподходящее расширение файла. Допустимы: JPG, PNG, GIF.')
 
 
 def validate_file_extension(value):
-    valid_extensions = ['.doc', '.docx', '.pdf', '.xls', 'xlsx']
+    valid_extensions = ['.doc', '.docx', '.pdf', '.xls', '.xlsx', '.DOC', '.DOCX', '.PDF', '.XLS', '.XLSX']
     if not any(value.name.endswith(ext) for ext in valid_extensions):
         raise ValidationError('Неподходящее расширение файла. Допустимы: DOC, DOCX, PDF, XLS, XLSX')

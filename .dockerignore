@@ -1,3 +1,4 @@
 /static/
 /main/migrations/
 /main/.idea/
+!/main/static/js/docs_validator.js

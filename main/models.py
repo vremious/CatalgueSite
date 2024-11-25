@@ -1,4 +1,5 @@
 import datetime
+import os
 
 import dateutil.relativedelta
 from django.core.validators import FileExtensionValidator
@@ -164,6 +165,11 @@ class Models(models.Model):
         else:
             return round(self.price / self.split_period, 2)
 
+    def delete(self, *args, **kwargs):
+        # object is being removed from db, remove the file from storage first
+        self.image.delete()
+        return super(Models, self).delete(*args, **kwargs)
+
     #
     # # Функция для создания подкаталогов медиа по типу устройств, для запуска раскоментить,
     # # в терминале вызвать модель Model,
@@ -277,8 +283,8 @@ class AdminToFilial(models.Model):
     filial = models.ForeignKey(Filial, on_delete=models.CASCADE, null=True, blank=True, verbose_name='Филиал')
 
     class Meta:
-        verbose_name = 'Привязка маркетинга'
-        verbose_name_plural = 'Привязка маркетинга'
+        verbose_name = 'Привязка маркетинга к филиалу'
+        verbose_name_plural = 'Привязка маркетинга к филиалам'
 
 
 class DeviceRequest(models.Model):
@@ -298,6 +304,9 @@ class DeviceRequest(models.Model):
     class Meta:
         verbose_name = 'Запрос устройства'
         verbose_name_plural = 'Запрос устройтсв'
+
+    def __str__(self):
+        return str(f'Запос устройства {self.device}:{self.contract_number}')
 
 
 # #
@@ -343,8 +352,13 @@ class ExpiredDeviceSerial(models.Model):
         if self.sold and not self.by_who:
             raise ValidationError('Если устройство продано, укажите где продано.')
 
+    def __str__(self):
+        return str(f'{self.entry} : {self.serial_number}')
+
 
 class Refund(models.Model):
+    user = models.ForeignKey(User, auto_created=True, blank=True, null=True, on_delete=models.CASCADE,
+                             verbose_name='Кто создал заявку', related_name='created_by_user')
     date_created = models.DateTimeField(editable=False, auto_created=True, blank=False,
                                         verbose_name='Дата создания заявки')
     filial = models.ForeignKey(Filial, on_delete=models.DO_NOTHING, blank=True, null=True, verbose_name='Филиал')
@@ -357,9 +371,15 @@ class Refund(models.Model):
     description = models.TextField(verbose_name='Примечание', blank=True)
     date_approved_return = models.DateField(blank=True, null=True, verbose_name='Согласован возврат')
 
+
     def save(self, *args, **kwargs):
         self.date_created = datetime.datetime.now()
         super(Refund, self).save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        self.refundimage_set.all().delete()
+        self.refunddocs_set.all().delete()
+        super(Refund, self).delete(*args, **kwargs)
 
     class Meta:
         verbose_name = 'Возврат товара'
@@ -367,17 +387,27 @@ class Refund(models.Model):
         unique_together = ['device', 'serial_number']
 
     def __str__(self):
-        return str(f'{self.device}')
+        return str(f'Возврат устройства {self.device} : {self.serial_number}')
 
 
 class RefundImage(models.Model):
     refund = models.ForeignKey(Refund, on_delete=models.CASCADE, verbose_name='Заявка на возврат', blank=False)
 
     def file_upload(self, filename):
-        return f'main/media/refund_contracts/{self.refund.serial_number}/{filename}'
+        return f'main/media/refund_contracts/{self.refund.filial.slug}/{self.refund.serial_number}/{filename}'
 
     image = models.ImageField(upload_to=file_upload, validators=[validate_file_size, validate_image_extension],
-                              verbose_name='Фотографии')
+                              verbose_name='Фотографии', null=True, blank=True)
+
+    def delete(self, *args, **kwargs):
+        # Удаляем файл изображения с диска перед удалением записи
+        print('executed image delete!')
+        if self.image:
+            self.image.delete()
+        super(RefundImage, self).delete(*args, **kwargs)
+
+    def __str__(self):
+        return str(f'{self.image}')
 
     class Meta:
         verbose_name = 'Фото дефекта'
@@ -388,40 +418,53 @@ class RefundDocs(models.Model):
     refund = models.ForeignKey(Refund, on_delete=models.CASCADE, verbose_name='Заявка на возврат', blank=False)
 
     def file_upload(self, filename):
-        return f'main/media/refund_contracts/{self.refund.serial_number}/{filename}'
+        return f'main/media/refund_contracts/{self.refund.filial.slug}/{self.refund.serial_number}/{filename}'
 
     docs = models.FileField(upload_to=file_upload, validators=[validate_file_size, validate_file_extension],
-                             verbose_name='Документы')
+                            verbose_name='Документы', null=True, blank=True)
+
+    def delete(self, *args, **kwargs):
+        print('executed docs delete!')
+        if self.docs:
+            self.docs.delete()
+        return super(RefundDocs, self).delete(*args, **kwargs)
+
+    def __str__(self):
+        return str(f'{self.docs}')
 
     class Meta:
-        verbose_name = 'Документ'
-        verbose_name_plural = 'Документы'
+        verbose_name = 'Документ дефекта'
+        verbose_name_plural = 'Документы дефекта'
+
 
 # Модуль сжимающий фото до 1920 пикселей по горизонтали с сохранением пропорций
 @receiver(post_save, sender=RefundImage)
 def compress_image(sender, instance, **kwargs):
-    if instance.image:
-        img_path = instance.image.path
-        img = PILImage.open(img_path)
+    try:
+        if instance.image:
+            img_path = instance.image.path
+            img = PILImage.open(img_path)
 
-        # Устанавливаем максимальную ширину
-        max_width = 1920
+            # Устанавливаем максимальную ширину
+            max_width = 1920
 
-        # Получаем ширину и высоту изображения
-        width, height = img.size
+            # Получаем ширину и высоту изображения
+            width, height = img.size
 
-        # Проверяем, нужно ли изменять размер изображения
-        if width > max_width:
-            # Вычисляем коэффициент уменьшения
-            ratio = max_width / width
-            new_width = max_width
-            new_height = int(height * ratio)
+            # Проверяем, нужно ли изменять размер изображения
+            if width > max_width:
+                # Вычисляем коэффициент уменьшения
+                ratio = max_width / width
+                new_width = max_width
+                new_height = int(height * ratio)
 
-            # Изменяем размер изображения
-            img = img.resize((new_width, new_height))
+                # Изменяем размер изображения
+                img = img.resize((new_width, new_height))
 
-            # Сохраняем изображение
-            img.save(img_path, format='JPEG', quality=85)
+                # Сохраняем изображение
+                img.save(img_path, format='JPEG', quality=85)
+    except FileNotFoundError:
+        pass
 
 
 # Декоратор добавляющий и убирающий оборудование взависимотси от актуальности:
