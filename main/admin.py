@@ -22,6 +22,7 @@ from django.contrib.admin.models import LogEntry
 
 class CustomLogEntryAdmin(admin.ModelAdmin):
     list_display = ('action_time', 'user', 'content_type', 'action_flag', '__str__')
+    list_filter = ['content_type']
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -29,32 +30,32 @@ class CustomLogEntryAdmin(admin.ModelAdmin):
         if request.user.is_superuser:
             return qs  # Суперпользователь видит все записи
 
-        # Получаем все сервисы, к которым относится пользователь
-        try:
-            employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
-            print(employee_services)
-        except Employee.DoesNotExist:
-            return qs.none()  # Если у пользователя нет записи в Employee, ничего не показываем
+        # # Получаем все сервисы, к которым относится пользователь
+        # try:
+        #     employee_services = Employee.objects.filter(user=request.user).values_list('service', flat=True)
+        #     print(employee_services)
+        # except Employee.DoesNotExist:
+        #     return qs.none()  # Если у пользователя нет записи в Employee, ничего не показываем
+        #
+        # # Получаем пользователей, относящихся к этим сервисам
+        # related_users = User.objects.filter(employee__service__in=employee_services)
+        # print(related_users)
+        #
+        # # Получаем все заявки Refund, созданные пользователями из этих сервисов
+        # related_refunds = Refund.objects.filter(user__in=related_users)
+        # print(related_refunds)
+        #
+        # # Получаем IDs связанных Refund
+        # related_refund_ids = related_refunds.values_list('id', flat=True)
+        # print(related_refund_ids)
+        # related_refund_ids_str = list(map(str, related_refund_ids))  # Приводим к строкам
+        # refund_content_type = ContentType.objects.get_for_model(Refund)
+        # # Фильтруем логи по объектам Refund, созданным пользователями из этих сервисов и действиям над ними
+        # return qs.filter(object_id__in=related_refund_ids_str,
+        #                  content_type=refund_content_type)
 
-        # Получаем пользователей, относящихся к этим сервисам
-        related_users = User.objects.filter(employee__service__in=employee_services)
-        print(related_users)
-
-        # Получаем все заявки Refund, созданные пользователями из этих сервисов
-        related_refunds = Refund.objects.filter(user__in=related_users)
-        print(related_refunds)
-
-        # Получаем IDs связанных Refund
-        related_refund_ids = related_refunds.values_list('id', flat=True)
-        print(related_refund_ids)
-        related_refund_ids_str = list(map(str, related_refund_ids))  # Приводим к строкам
-        refund_content_type = ContentType.objects.get_for_model(Refund)
-        # Фильтруем логи по объектам Refund, созданным пользователями из этих сервисов и действиям над ними
-        return qs.filter(object_id__in=related_refund_ids_str,
-            content_type=refund_content_type)
     def has_change_permission(self, request, obj=None):
         return request.user.is_superuser
-
 
 
 admin.site.register(LogEntry, CustomLogEntryAdmin)
@@ -425,7 +426,7 @@ class RefundDocsInline(admin.TabularInline):
 class RefundAdmin(admin.ModelAdmin):
     inlines = [RefundImageInline, RefundDocsInline]  # Используем inline для добавления документов
     list_display = ('date_created', 'user', 'device', 'serial_number', 'problem_description', 'pre_barter',
-                    'description', 'date_approved_return')
+                    'description', 'date_approved_return', 'by_who_changed', 'date_changed')
     autocomplete_fields = ['device']
     readonly_fields = ('date_created',)
     actions = ['delete_selected_devices']
@@ -465,6 +466,9 @@ class RefundAdmin(admin.ModelAdmin):
         if not change:
             obj.user = request.user
             obj.date_created = datetime.datetime.now()
+        else:
+            obj.by_who_changed = request.user
+            obj.date_changed = datetime.datetime.now()
         super().save_model(request, obj, form, change)
 
     def get_readonly_fields(self, request, obj=None):

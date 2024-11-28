@@ -370,6 +370,9 @@ class Refund(models.Model):
                                   verbose_name="Предторг")
     description = models.TextField(verbose_name='Примечание', blank=True)
     date_approved_return = models.DateField(blank=True, null=True, verbose_name='Согласован возврат')
+    date_changed = models.DateTimeField(editable=False, blank=True, null=True, verbose_name='Заявка изменена')
+    by_who_changed = models.ForeignKey(User, editable=False, blank=True, null=True, on_delete=models.CASCADE,
+                             verbose_name='Кто изменил', related_name='changed_by')
 
 
     def save(self, *args, **kwargs):

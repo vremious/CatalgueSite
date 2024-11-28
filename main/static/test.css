@@ -1,0 +1,156 @@
+
+.flip-card{
+    overflow: hidden;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 6px 10px rgba(0,0,0,.08), 0 0 6px rgba(0,0,0,.05);
+    transition: 0.1s transform cubic-bezier(.155,1.105,.295,1.12),.3s box-shadow,.3s -webkit-transform cubic-bezier(.155,1.105,.295,1.12);
+    padding: 14px 10px 50px 10px;
+    cursor: pointer;
+}
+
+.flip-card:hover{
+    transform: scale(1.05);
+    box-shadow: 0 10px 20px rgba(0,0,0,.12), 0 4px 8px rgba(0,0,0,.06);
+}
+
+
+/* This container is needed to position the front and back side */
+.flip-card-inner {
+  text-align: left;
+  transition: transform 0.4s;
+  transform-origin: 30px 0 0;
+  transform-style: preserve-3d;
+}
+
+/* Do an horizontal flip when you move the mouse over the flip box container */
+.flip  .flip-card-inner {
+  transform: rotateY(180deg);
+
+
+}
+
+.flip-card-back {
+  position:relative;
+  height: auto;
+  top:10px;
+  transform-origin: 30px 0 0;
+  -webkit-backface-visibility: hidden; /* Safari */
+  backface-visibility: hidden;
+  transform: rotateY(180deg);
+}
+
+
+.flip-card-back {
+    background-color: #ffffff;
+    color: black;
+
+
+}
+
+/* Position the front and back side */
+.flip-card-front {
+  position: absolute;
+  transform-origin: 30px 0 0;
+  -webkit-backface-visibility: hidden; /* Safari */
+  backface-visibility: hidden;
+  transform: rotateX(0deg);
+}
+
+
+/* Style the front side (fallback if image is missing) */
+.flip-card-front {
+  background-color: #ffffff;
+  color: black;
+}
+
+
+
+/* Style the back side */
+
+
+.card{
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 6px 10px rgba(0,0,0,.08), 0 0 6px rgba(0,0,0,.05);
+    transition: 0.1s transform cubic-bezier(.155,1.105,.295,1.12),.3s box-shadow,.3s -webkit-transform cubic-bezier(.155,1.105,.295,1.12);
+    padding: 14px 10px 14px 10px;
+    cursor: pointer;
+}
+
+.card:hover {
+    transform: scale(1.05);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, .12), 0 4px 8px rgba(0, 0, 0, .06);
+}
+/*@keyframes fadeIn {*/
+/*  0% { opacity: 0; }*/
+/*  60%{opacity: 0;}*/
+/*  100% { opacity: 1; }*/
+/*}*/
+
+/*#up {*/
+/*    ;*/
+/*    animation: fadeIn 4s;*/
+/*    ;*/
+/*}*/
+
+.bottomMenu {
+    position: fixed;
+    bottom: 45px;
+    right: 40px;
+    color: white;
+    width: 50px;
+    height: 50px;
+    border-top: none;
+    background: transparent;
+    z-index: 1;
+    transition: all 1s;
+}
+.hide {
+    opacity:0;
+
+}
+.show {
+    opacity:1;
+
+}
+
+/*.card-img-top{*/
+/*   width: 100%!important;*/
+/*   height: 200px!important;*/
+/*   object-fit: contain;*/
+/*}*/
+
+
+/*#myInput {*/
+/*  background-image: url('/css/searchicon.png'); !* Add a search icon to input *!*/
+/*  background-position: 10px 12px; !* Position the search icon *!*/
+/*  background-repeat: no-repeat; !* Do not repeat the icon image *!*/
+/*  width: 100%; !* Full-width *!*/
+/*  font-size: 16px; !* Increase font-size *!*/
+/*  padding: 12px 20px 12px 40px; !* Add some padding *!*/
+/*  border: 1px solid #ddd; !* Add a grey border *!*/
+/*  margin-bottom: 12px; !* Add some space below the input *!*/
+/*}*/
+
+/*#myUL {*/
+/*  !* Remove default list styling *!*/
+/*  list-style-type: none;*/
+/*  padding: 0;*/
+/*  margin: 0;*/
+/*}*/
+
+/*#myUL li a {*/
+/*  border: 1px solid #ddd; !* Add a border to all links *!*/
+/*  margin-top: -1px; !* Prevent double borders *!*/
+/*  background-color: #f6f6f6; !* Grey background color *!*/
+/*  padding: 12px; !* Add some padding *!*/
+/*  text-decoration: none; !* Remove default text underline *!*/
+/*  font-size: 18px; !* Increase the font-size *!*/
+/*  color: black; !* Add a black text color *!*/
+/*  display: block; !* Make it into a block element to fill the whole list *!*/
+/*}*/
+
+/*#myUL li a:hover:not(.header) {*/
+/*  background-color: #eee; !* Add a hover effect to all links, except for headers *!*/
+/*}*/

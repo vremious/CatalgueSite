@@ -1,4 +1,8 @@
 /static/
 /main/migrations/
 /main/.idea/
-!/main/static/js/docs_validator.js
+/myproject.sock
+/db.sqlite3
+/.env
+/schema.yml
+/main/media/

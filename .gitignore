@@ -651,3 +651,4 @@ Catalgue/settings.py
 main/migrations/
 !/main/static/js/docs_validator.js
 !/Catalgue/settings.py
+!/main/static/
